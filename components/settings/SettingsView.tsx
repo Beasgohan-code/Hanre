@@ -234,6 +234,7 @@ export default function SettingsView({ initialUser }: { initialUser: User }) {
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
+                  disabled={isDemo}
                 />
               </div>
             </div>
@@ -385,7 +386,11 @@ export default function SettingsView({ initialUser }: { initialUser: User }) {
           <section id="account" className="card settings-card" style={{ scrollMarginTop: 90 }}>
             <div className="settings-card__head">
               <h2>Security</h2>
-              <p>Change your password. You will be signed out of every session afterwards.</p>
+              <p>
+                {isDemo
+                  ? "The demo account has a fixed password so everyone can try it. Create your own account to manage a password."
+                  : "Change your password. You will be signed out of every session afterwards."}
+              </p>
             </div>
             <div className="form-stack">
               <div className="input-row">
@@ -398,6 +403,7 @@ export default function SettingsView({ initialUser }: { initialUser: User }) {
                     value={currentPassword}
                     onChange={(event) => setCurrentPassword(event.target.value)}
                     autoComplete="current-password"
+                    disabled={isDemo}
                   />
                 </div>
                 <div className="field" style={{ flex: 1 }}>
@@ -409,6 +415,7 @@ export default function SettingsView({ initialUser }: { initialUser: User }) {
                     value={newPassword}
                     onChange={(event) => setNewPassword(event.target.value)}
                     autoComplete="new-password"
+                    disabled={isDemo}
                   />
                 </div>
               </div>
@@ -422,9 +429,10 @@ export default function SettingsView({ initialUser }: { initialUser: User }) {
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
                     autoComplete="new-password"
+                    disabled={isDemo}
                   />
                 </div>
-                <button className="btn" type="button" onClick={changePassword} disabled={passwordPending}>
+                <button className="btn" type="button" onClick={changePassword} disabled={passwordPending || isDemo}>
                   {passwordPending && <Spinner />} Update password
                 </button>
               </div>
