@@ -75,15 +75,16 @@ export function PrefsProvider({
 
   useEffect(() => {
     const palette = ACCENTS[prefs.accent ?? "violet"] ?? ACCENTS.violet;
+    const lift = theme === "light" ? palette.main : palette.lift;
     const targets = [document.documentElement, document.querySelector<HTMLElement>(".app-shell")];
     for (const target of targets) {
       if (!target) continue;
       target.style.setProperty("--accent", palette.main);
-      target.style.setProperty("--accent-2", palette.lift);
+      target.style.setProperty("--accent-2", lift);
       target.style.setProperty("--accent-soft", palette.soft);
       target.style.setProperty("--accent-line", palette.line);
     }
-  }, [prefs.accent]);
+  }, [prefs.accent, theme]);
 
   const persist = useCallback((next: UserPrefs) => {
     api<{ user: User }>("/api/auth/me", {
