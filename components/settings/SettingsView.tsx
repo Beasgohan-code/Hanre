@@ -30,6 +30,7 @@ const ACCENTS = [
 
 const SHORTCUTS: [string, string][] = [
   ["⌘ / Ctrl + K", "Search everything and run commands"],
+  ["⌘ / Ctrl + P", "Go to a file in the editor"],
   ["⌘ / Ctrl + Enter", "Run the open file"],
   ["⌘ / Ctrl + S", "Save the open file"],
   ["⌘ / Ctrl + `", "Toggle the terminal panel"],

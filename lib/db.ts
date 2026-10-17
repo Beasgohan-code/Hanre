@@ -51,6 +51,7 @@ function migrate(d: DatabaseSync) {
       language TEXT NOT NULL DEFAULT 'javascript',
       color TEXT NOT NULL DEFAULT '#8b7bff',
       is_archived INTEGER NOT NULL DEFAULT 0,
+      favorite INTEGER NOT NULL DEFAULT 0,
       source TEXT NOT NULL DEFAULT 'blank',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -105,6 +106,19 @@ function migrate(d: DatabaseSync) {
       duration_ms INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS file_versions (
+      id TEXT PRIMARY KEY,
+      file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS shares (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+      slug TEXT NOT NULL UNIQUE,
+      views INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS activity (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -120,7 +134,15 @@ function migrate(d: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_activity_user ON activity(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_versions_file ON file_versions(file_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_shares_slug ON shares(slug);
   `);
+
+  // Forward-compatible migrations for databases created before a column existed.
+  const projectColumns = d.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+  if (!projectColumns.some((column) => column.name === "favorite")) {
+    d.exec("ALTER TABLE projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 export function nowIso() {

@@ -43,6 +43,8 @@ export interface Project {
   language: string;
   color: string;
   isArchived: boolean;
+  favorite: boolean;
+  shareSlug?: string | null;
   source: string;
   createdAt: string;
   updatedAt: string;
@@ -107,6 +109,22 @@ export interface Run {
   status: "success" | "error" | "unsupported";
   output: string;
   durationMs: number;
+  createdAt: string;
+}
+
+export interface FileVersion {
+  id: string;
+  fileId: string;
+  size: number;
+  preview: string;
+  createdAt: string;
+}
+
+export interface Share {
+  id: string;
+  projectId: string;
+  slug: string;
+  views: number;
   createdAt: string;
 }
 

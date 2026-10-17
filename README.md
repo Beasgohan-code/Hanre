@@ -40,14 +40,18 @@ Python, HTML/CSS, Markdown, JSON, and SQL all run client-side, straight from the
 - **Hanre Shell** — a guided terminal with `ls`, `cd`, `cat`, `tree`, `touch`, `echo >`, `rm`,
   `mv`, `open`, `run`, `git status/log/diff`, `npm run dev`, and `hanre stats`. Every destructive
   action maps to real workspace files, and every error explains itself.
-- **File management** — create, rename, move, upload, download, and delete files and folders.
+- **File management** — create, rename, move, upload, download, import `.zip` archives, and
+  delete files and folders.
+- **File history** — every save keeps the previous version (up to 30 per file), with preview and
+  one-click restore.
+- **Go to file** with `⌘P` / `Ctrl+P`, plus tabs and a keyboard-first quick switcher.
 - **Project download** as a `.zip`, plus a full JSON backup of the whole workspace.
 
 ### Around the workspace
 - **Dashboard** with a 7-day activity chart, real stats, recent projects, a focus list of open
   tasks, recent runs, and an activity feed.
-- **Projects** with filtering (all/active/archived), grid and list views, duplicate, archive,
-  rename, delete, six starter templates, and optimistic updates throughout.
+- **Projects** with starring, filtering (starred/active/archived), grid and list views, duplicate,
+  archive, rename, publish, delete, six starter templates, and optimistic updates throughout.
 - **Snippets** library with language/tag filters, search, starring, copy, edit, and delete.
 - **Tasks** as a four-column drag-and-drop board (Backlog → In progress → Review → Done) with
   priorities, due dates, project links, quick-complete, and persisted ordering.
@@ -55,6 +59,8 @@ Python, HTML/CSS, Markdown, JSON, and SQL all run client-side, straight from the
   inspection, single deletion, and a guarded “clear history”.
 - **GitHub import** — inspect any public repository, choose which text files to copy, and land in
   a ready-to-edit project. Binaries, lockfiles, and huge files are skipped automatically.
+- **Public share pages** — publish any project as a read-only page with a live preview, file
+  browser, view counter, and instant revoke. No account needed to view it.
 - **Command palette** (⌘K / Ctrl+K) for jumping to pages, projects, snippets, tasks, and files.
 - **Settings** for profile, avatar colour, theme (dark/light/system), accent colour, editor font
   size, tab size, word wrap, autosave, line numbers, password changes, data export, and account
@@ -175,8 +181,8 @@ message on failure. Writes use `POST`, `PATCH`, or `DELETE`.
 | Area | Endpoints |
 | --- | --- |
 | Auth | `POST /api/auth/register`, `/login`, `/demo`, `/logout` · `GET/PATCH /api/auth/me` · `POST /api/auth/password` · `DELETE /api/auth/account` |
-| Projects | `GET/POST /api/projects` · `GET/PATCH/DELETE /api/projects/:id` · `POST /api/projects/:id/duplicate` |
-| Files | `GET/POST /api/files?projectId=` · `GET/PATCH/DELETE /api/files/:id` |
+| Projects | `GET/POST /api/projects` · `GET/PATCH/DELETE /api/projects/:id` · `POST /api/projects/:id/duplicate` · `GET/POST/DELETE /api/projects/:id/share` |
+| Files | `GET/POST /api/files?projectId=` · `GET/PATCH/DELETE /api/files/:id` · `GET/POST /api/files/:id/versions` |
 | Snippets | `GET/POST /api/snippets` · `GET/PATCH/DELETE /api/snippets/:id` |
 | Tasks | `GET/POST /api/tasks` · `GET/PATCH/DELETE /api/tasks/:id` · `POST /api/tasks/reorder` |
 | Runs | `GET/POST/DELETE /api/runs` · `DELETE /api/runs/:id` |
@@ -193,6 +199,7 @@ SHA-256 hashes are stored. Passwords use `scrypt` with a per-user salt.
 | Keys | Action |
 | --- | --- |
 | `⌘K` / `Ctrl+K` | Command palette |
+| `⌘P` / `Ctrl+P` | Go to file (editor) |
 | `⌘S` / `Ctrl+S` | Save the open file |
 | `⌘↵` / `Ctrl+Enter` | Run the open file |
 | `⌘\`` / `Ctrl+\`` | Toggle the terminal |
@@ -221,6 +228,8 @@ Copy `.env.example` if you want to set anything — everything is optional.
 - **Python is downloaded on demand.** The first Python or SQL run needs network access to jsDelivr.
 - **No native compilers.** C++, Rust, Java, and PHP files are highlighted and stored, but not
   compiled; Hanre explains this instead of failing silently.
+- **Shares are public by design.** Anyone with a share link can read every file in that project.
+  Revoke a link in the editor to disable it immediately; never publish secrets.
 - **Single-node storage.** SQLite is perfect for a personal or small-team deployment; it is not a
   distributed database. Host the app on one persistent disk.
 - **No email verification or password reset flow.** Accounts are local to this deployment, and the

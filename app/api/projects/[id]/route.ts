@@ -33,6 +33,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       color?: string;
       language?: string;
       isArchived?: boolean;
+      favorite?: boolean;
     }>(req);
 
     const name = body.name !== undefined ? str(body.name, "Project name", { min: 1, max: 80 }) : existing.name;
@@ -42,6 +43,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     const color = body.color && /^#[0-9a-fA-F]{6}$/.test(body.color) ? body.color : undefined;
     const language = body.language && body.language.length < 30 ? body.language : undefined;
     const archived = body.isArchived !== undefined ? (body.isArchived ? 1 : 0) : undefined;
+    const favorite = body.favorite !== undefined ? (body.favorite ? 1 : 0) : undefined;
 
     const db = getDb();
     db.prepare(
@@ -51,13 +53,20 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         color = COALESCE(?, color),
         language = COALESCE(?, language),
         is_archived = COALESCE(?, is_archived),
+        favorite = COALESCE(?, favorite),
         updated_at = ?
        WHERE id = ? AND user_id = ?`,
-    ).run(name, description ?? null, color ?? null, language ?? null, archived ?? null, nowIso(), id, user.id);
+    ).run(name, description ?? null, color ?? null, language ?? null, archived ?? null, favorite ?? null, nowIso(), id, user.id);
 
+    const meaningful =
+      body.name !== undefined ||
+      body.description !== undefined ||
+      body.color !== undefined ||
+      body.language !== undefined ||
+      body.isArchived !== undefined;
     if (archived === 1) logActivity(user.id, "project", `Archived ${name}`, id);
     else if (archived === 0 && existing.is_archived) logActivity(user.id, "project", `Restored ${name}`, id);
-    else logActivity(user.id, "project", `Updated ${name}`, id);
+    else if (meaningful) logActivity(user.id, "project", `Updated ${name}`, id);
 
     return json({ project: getProject(user.id, id) });
   });

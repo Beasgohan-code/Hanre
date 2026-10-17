@@ -5,6 +5,7 @@ import { mapFile } from "@/lib/data";
 import { languageForPath } from "@/lib/types";
 import { ApiError } from "@/lib/errors";
 import { cleanFilePath } from "@/lib/files";
+import { snapshotVersion } from "@/lib/versions";
 
 async function ownedFile(userId: string, id: string) {
   const row = getDb().prepare("SELECT * FROM files WHERE id = ? AND user_id = ?").get(id, userId) as
@@ -26,6 +27,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
     if (body.path !== undefined) {
       const path = cleanFilePath(body.path);
+      if (typeof body.content === "string" && body.content !== String(existing.content ?? "")) {
+        snapshotVersion(id, String(existing.content ?? ""));
+      }
       const clash = db
         .prepare("SELECT id FROM files WHERE project_id = ? AND path = ? AND id != ?")
         .get(projectId, path, id);
@@ -43,6 +47,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       );
     } else if (body.content !== undefined) {
       if (typeof body.content !== "string") throw new ApiError(400, "File content must be text.");
+      if (body.content !== String(existing.content ?? "")) {
+        snapshotVersion(id, String(existing.content ?? ""));
+      }
       db.prepare("UPDATE files SET content = ?, updated_at = ? WHERE id = ? AND user_id = ?").run(
         body.content.slice(0, 1_000_000),
         timestamp,

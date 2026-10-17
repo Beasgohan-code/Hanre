@@ -14,6 +14,8 @@ export function mapProject(row: Row): Project {
     language: String(row.language ?? "javascript"),
     color: String(row.color ?? "#8b7bff"),
     isArchived: Boolean(row.is_archived),
+    favorite: Boolean(row.favorite),
+    shareSlug: row.share_slug ? String(row.share_slug) : null,
     source: String(row.source ?? "blank"),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
@@ -109,14 +111,15 @@ const PROJECT_SELECT = `
   SELECT p.*,
     (SELECT COUNT(*) FROM files f WHERE f.project_id = p.id) AS file_count,
     (SELECT COUNT(*) FROM runs r WHERE r.project_id = p.id) AS run_count,
-    (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') AS open_tasks
+    (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') AS open_tasks,
+    (SELECT s.slug FROM shares s WHERE s.project_id = p.id) AS share_slug
   FROM projects p
 `;
 
 export function listProjects(userId: string, includeArchived = false): Project[] {
   const rows = getDb()
     .prepare(
-      `${PROJECT_SELECT} WHERE p.user_id = ? ${includeArchived ? "" : "AND p.is_archived = 0"} ORDER BY p.updated_at DESC`,
+      `${PROJECT_SELECT} WHERE p.user_id = ? ${includeArchived ? "" : "AND p.is_archived = 0"} ORDER BY p.favorite DESC, p.updated_at DESC`,
     )
     .all(userId) as Row[];
   return rows.map(mapProject);

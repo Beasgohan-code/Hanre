@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ChevronRight, Download, FileCode2, FilePlus2, Loader2, Menu,
-  MoreVertical, PanelRight, Play, Save, Settings2, TerminalSquare, Trash2,
-  Upload, X,
+  ArrowLeft, ChevronRight, Download, FileArchive, FileCode2, FilePlus2, History,
+  Loader2, Menu, MoreVertical, PanelRight, Play, Save, Search, Settings2, Share2,
+  TerminalSquare, Trash2, Upload, X,
 } from "lucide-react";
-import type { Project, ProjectFile, UserPrefs } from "@/lib/types";
+import type { FileVersion, Project, ProjectFile, Share, UserPrefs } from "@/lib/types";
 import { languageForPath, LANGUAGES } from "@/lib/types";
 import { api, errorMessage, relativeTime } from "@/lib/client";
 import { runFile as executeFile, type RunResult } from "@/lib/runner";
@@ -97,6 +97,23 @@ export default function Workbench({
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<TerminalHandle>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const zipRef = useRef<HTMLInputElement>(null);
+
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickQuery, setQuickQuery] = useState("");
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyFile, setHistoryFile] = useState<ProjectFile | null>(null);
+  const [versions, setVersions] = useState<FileVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<(FileVersion & { content: string }) | null>(null);
+  const [versionLoading, setVersionLoading] = useState(false);
+  const [restorePending, setRestorePending] = useState(false);
+
+  const [shareOpen, setShareOpen] = useState(false);
+  const [share, setShare] = useState<Share | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [sharePending, setSharePending] = useState(false);
 
   const [fileModal, setFileModal] = useState<null | { mode: "create" } | { mode: "rename"; file: ProjectFile }>(null);
   const [filePathInput, setFilePathInput] = useState("");
@@ -446,6 +463,167 @@ export default function Workbench({
     }
   }
 
+  async function openHistory() {
+    if (!activeFile) return;
+    setHistoryFile(activeFile);
+    setHistoryOpen(true);
+    setVersions([]);
+    setSelectedVersion(null);
+    setVersionsLoading(true);
+    try {
+      const data = await api<{ versions: FileVersion[] }>(`/api/files/${activeFile.id}/versions`);
+      setVersions(data.versions);
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error", title: "Could not load history" });
+    } finally {
+      setVersionsLoading(false);
+    }
+  }
+
+  async function viewVersion(version: FileVersion) {
+    if (!historyFile) return;
+    setVersionLoading(true);
+    try {
+      const data = await api<{ version: FileVersion & { content: string } }>(
+        `/api/files/${historyFile.id}/versions?versionId=${encodeURIComponent(version.id)}`,
+      );
+      setSelectedVersion(data.version);
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error" });
+    } finally {
+      setVersionLoading(false);
+    }
+  }
+
+  async function restoreVersion() {
+    if (!historyFile || !selectedVersion || restorePending) return;
+    setRestorePending(true);
+    try {
+      const data = await api<{ file: ProjectFile }>(`/api/files/${historyFile.id}/versions`, {
+        method: "POST",
+        body: JSON.stringify({ versionId: selectedVersion.id }),
+      });
+      setFiles((current) => current.map((entry) => (entry.id === data.file.id ? data.file : entry)));
+      setDirty((current) => {
+        const next = new Set(current);
+        next.delete(data.file.id);
+        return next;
+      });
+      setEditorToken((token) => token + 1);
+      setHistoryOpen(false);
+      toast(`Restored the version from ${relativeTime(selectedVersion.createdAt)}.`, {
+        tone: "success",
+        title: "Version restored",
+      });
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error", title: "Restore failed" });
+    } finally {
+      setRestorePending(false);
+    }
+  }
+
+  async function openShare() {
+    setShareOpen(true);
+    setShareLoading(true);
+    try {
+      const data = await api<{ share: Share | null }>(`/api/projects/${project.id}/share`);
+      setShare(data.share);
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error" });
+    } finally {
+      setShareLoading(false);
+    }
+  }
+
+  async function publishShare() {
+    if (sharePending) return;
+    setSharePending(true);
+    try {
+      const data = await api<{ share: Share }>(`/api/projects/${project.id}/share`, { method: "POST" });
+      setShare(data.share);
+      toast("Anyone with the link can now view this project read-only.", {
+        tone: "success",
+        title: "Project published",
+      });
+      router.refresh();
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error" });
+    } finally {
+      setSharePending(false);
+    }
+  }
+
+  async function unpublishShare() {
+    if (sharePending) return;
+    setSharePending(true);
+    try {
+      await api(`/api/projects/${project.id}/share`, { method: "DELETE" });
+      setShare(null);
+      toast("The public link stopped working.", { tone: "info", title: "Share revoked" });
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error" });
+    } finally {
+      setSharePending(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!share) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/s/${share.slug}`);
+      toast("Share link copied to your clipboard.", { tone: "success" });
+    } catch {
+      toast("Copy failed — select the link and copy it manually.", { tone: "error" });
+    }
+  }
+
+  async function handleZipUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const archive = event.target.files?.[0];
+    event.target.value = "";
+    if (!archive) return;
+    if (archive.size > 8_000_000) {
+      toast("Keep zip archives under 8 MB.", { tone: "error" });
+      return;
+    }
+    try {
+      const { unzipSync, strFromU8 } = await import("fflate");
+      const entries = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+      const paths = Object.keys(entries)
+        .filter((path) => !/(^|\/)(__MACOSX|node_modules|\.git|dist|build)(\/|$)/.test(path))
+        .filter((path) => !path.endsWith("/") && !/\.(png|jpe?g|gif|webp|ico|pdf|zip|woff2?|ttf|otf|mp[34]|wasm)$/i.test(path))
+        .slice(0, 60);
+      let imported = 0;
+      let skipped = 0;
+      for (const rawPath of paths) {
+        const data = entries[rawPath];
+        const path = rawPath.replace(/\\/g, "/").replace(/^\/+/, "");
+        if (!data || data.length > 200_000 || data.slice(0, 800).includes(0) || !path) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          const text = strFromU8(data);
+          const existing = filesRef.current.find((file) => file.path === path);
+          if (existing) await writeFileInternal(path, text, true);
+          else await createFileInternal(path, text, true);
+          imported += 1;
+        } catch {
+          skipped += 1;
+        }
+      }
+      if (imported) {
+        toast(`${imported} file${imported === 1 ? "" : "s"} imported${skipped ? `, ${skipped} skipped` : ""}.`, {
+          tone: "success",
+          title: "Zip imported",
+        });
+      } else {
+        toast("No readable text files were found in that archive.", { tone: "error" });
+      }
+    } catch {
+      toast("That archive could not be read. Make sure it is a valid .zip file.", { tone: "error" });
+    }
+  }
+
   async function saveProjectSettings() {
     if (settingsPending) return;
     setSettingsPending(true);
@@ -484,6 +662,11 @@ export default function Workbench({
       if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setQuickQuery("");
+        setQuickOpen(true);
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void saveDirty();
@@ -546,6 +729,14 @@ export default function Workbench({
     movePath: moveFileInternal,
   };
 
+  const quickResults = useMemo(() => {
+    const needle = quickQuery.trim().toLowerCase();
+    return files
+      .filter((file) => !needle || file.path.toLowerCase().includes(needle))
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .slice(0, 40);
+  }, [files, quickQuery]);
+  const shareUrl = share ? (typeof window !== "undefined" ? `${window.location.origin}/s/${share.slug}` : `/s/${share.slug}`) : "";
   const outputLines = useMemo(() => output.split("\n"), [output]);
   const meta = activeFile ? languageMeta(activeFile.language) : null;
   const dirtyPathsCount = dirty.size;
@@ -600,6 +791,37 @@ export default function Workbench({
             >
               <Save size={13} />
               <span className="btn-label">Save</span>
+            </button>
+            <button
+              type="button"
+              className="icon-btn wb-hide-sm"
+              onClick={() => {
+                setQuickQuery("");
+                setQuickOpen(true);
+              }}
+              title="Go to file (⌘P)"
+              aria-label="Go to file"
+            >
+              <Search size={15} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn wb-hide-sm"
+              onClick={() => void openHistory()}
+              disabled={!activeFile}
+              title="File history"
+              aria-label="File history"
+            >
+              <History size={15} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => void openShare()}
+              title="Share this project"
+              aria-label="Share this project"
+            >
+              <Share2 size={15} />
             </button>
             <button
               type="button"
@@ -676,6 +898,16 @@ export default function Workbench({
                     }}
                   >
                     <FilePlus2 size={14} /> New file
+                  </button>
+                  <button
+                    type="button"
+                    className="menu-item"
+                    onClick={() => {
+                      zipRef.current?.click();
+                      setProjectMenu(false);
+                    }}
+                  >
+                    <FileArchive size={14} /> Import .zip archive
                   </button>
                   <div className="menu-sep" />
                   <button
@@ -1132,6 +1364,169 @@ export default function Workbench({
         onConfirm={deleteProject}
       />
 
+      <Modal
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        title="Go to file"
+        subtitle="Jump to any file by name or path."
+      >
+        <div className="quick-open">
+          <div className="toolbar__search">
+            <Search size={14} />
+            <input
+              className="input"
+              value={quickQuery}
+              onChange={(event) => setQuickQuery(event.target.value)}
+              placeholder="Type a file name…"
+              aria-label="Search files"
+              autoFocus
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && quickResults[0]) {
+                  event.preventDefault();
+                  openFile(quickResults[0]);
+                  setQuickOpen(false);
+                }
+              }}
+            />
+          </div>
+          <div className="quick-open__list">
+            {quickResults.length === 0 ? (
+              <p className="muted-sm" style={{ padding: "14px 10px" }}>No files match that search.</p>
+            ) : (
+              quickResults.map((file, index) => (
+                <button
+                  key={file.id}
+                  type="button"
+                  className="quick-open__row"
+                  data-first={index === 0}
+                  onClick={() => {
+                    openFile(file);
+                    setQuickOpen(false);
+                  }}
+                >
+                  <FileCode2 size={13} style={{ color: LANGUAGES.find((entry) => entry.value === file.language)?.color }} />
+                  <span>{file.path}</span>
+                  {dirty.has(file.id) && <span className="wb-tab__dot" />}
+                </button>
+              ))
+            )}
+          </div>
+          <p className="muted-sm quick-open__hint">⌘P anywhere in the editor · Enter opens the first match</p>
+        </div>
+      </Modal>
+
+      <Modal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        title={`History · ${historyFile?.name ?? "file"}`}
+        subtitle="Every save keeps the previous version. Pick one to inspect or restore it."
+        footer={
+          <>
+            <button className="btn" type="button" onClick={() => setHistoryOpen(false)}>Close</button>
+            <button
+              className="btn btn--primary"
+              type="button"
+              onClick={() => void restoreVersion()}
+              disabled={!selectedVersion || restorePending}
+            >
+              {restorePending && <Spinner />} Restore selected
+            </button>
+          </>
+        }
+      >
+        <div className="history-panel">
+          {versionsLoading ? (
+            <p className="muted-sm" style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 0" }}>
+              <Spinner /> Loading saved versions…
+            </p>
+          ) : versions.length === 0 ? (
+            <p className="muted-sm" style={{ lineHeight: 1.7 }}>
+              No earlier versions yet. Once you edit and save this file, the previous content appears here.
+            </p>
+          ) : (
+            <div className="history-list">
+              {versions.map((version) => (
+                <button
+                  key={version.id}
+                  type="button"
+                  className="history-row"
+                  data-active={selectedVersion?.id === version.id}
+                  onClick={() => void viewVersion(version)}
+                >
+                  <History size={13} />
+                  <span className="history-row__time">{relativeTime(version.createdAt)}</span>
+                  <span className="history-row__preview">{version.preview || "Empty file"}</span>
+                  <span className="history-row__size">{version.size} B</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {versionLoading && (
+            <p className="muted-sm" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Spinner /> Loading version…
+            </p>
+          )}
+          {selectedVersion && !versionLoading && (
+            <pre className="history-preview">{selectedVersion.content.slice(0, 4000) || "This version was empty."}</pre>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        title="Share this project"
+        subtitle="Publish a read-only page with the files and live preview. No account needed to view it."
+        footer={
+          <>
+            <button className="btn" type="button" onClick={() => setShareOpen(false)}>Done</button>
+            {share ? (
+              <button className="btn btn--danger" type="button" onClick={() => void unpublishShare()} disabled={sharePending}>
+                {sharePending && <Spinner />} Revoke link
+              </button>
+            ) : (
+              <button className="btn btn--primary" type="button" onClick={() => void publishShare()} disabled={shareLoading || sharePending}>
+                {sharePending && <Spinner />} Publish project
+              </button>
+            )}
+          </>
+        }
+      >
+        {shareLoading ? (
+          <p className="muted-sm" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Spinner /> Checking share status…
+          </p>
+        ) : share ? (
+          <div className="form-stack">
+            <div className="field">
+              <label htmlFor="share-url">Public link</label>
+              <div className="share-link">
+                <input id="share-url" className="input mono" value={shareUrl} readOnly onFocus={(event) => event.target.select()} />
+                <button className="btn" type="button" onClick={() => void copyShareLink()}>Copy</button>
+              </div>
+              <span className="field__hint">
+                {share.views.toLocaleString()} view{share.views === 1 ? "" : "s"} since {relativeTime(share.createdAt)}.
+              </span>
+            </div>
+            <a className="btn btn--outline" href={`/s/${share.slug}`} target="_blank" rel="noreferrer">
+              Open the public page
+            </a>
+            <p className="muted-sm" style={{ lineHeight: 1.65 }}>
+              Visitors see the current files and preview — never your account, runs, or tasks. Revoking the link
+              takes effect immediately.
+            </p>
+          </div>
+        ) : (
+          <div className="form-stack">
+            <p className="muted-sm" style={{ lineHeight: 1.7 }}>
+              This creates a link like <code className="mono">/s/abc123</code> that anyone can open. Edits you make
+              later show up automatically, so revoke the link when you are done. Anyone with the link can read
+              every file in this project — never publish secrets.
+            </p>
+          </div>
+        )}
+      </Modal>
+
       <input
         ref={uploadRef}
         type="file"
@@ -1139,6 +1534,14 @@ export default function Workbench({
         hidden
         onChange={handleUpload}
         aria-label="Upload files"
+      />
+      <input
+        ref={zipRef}
+        type="file"
+        accept=".zip,application/zip"
+        hidden
+        onChange={handleZipUpload}
+        aria-label="Import a zip archive"
       />
     </div>
   );

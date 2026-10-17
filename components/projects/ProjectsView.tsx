@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Archive, ArchiveRestore, ArrowUpRight, CheckSquare, ChevronRight, Copy, Download,
-  FileCode2, FolderKanban, FolderOpen, Github, LayoutGrid, List, Loader2, MoreHorizontal,
-  Pencil, Play, Plus, Search, Trash2, X,
+  FileCode2, FolderKanban, FolderOpen, Github, Globe, LayoutGrid, List, Loader2, MoreHorizontal,
+  Pencil, Play, Plus, Search, Star, Trash2, X,
 } from "lucide-react";
 import type { Project } from "@/lib/types";
 import { LANGUAGES } from "@/lib/types";
@@ -32,6 +32,7 @@ export default function ProjectsView({
   const [query, setQuery] = useState("");
   const [language, setLanguage] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
+  const [starOnly, setStarOnly] = useState(false);
   const [sort, setSort] = useState<"updated" | "name">("updated");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [newOpen, setNewOpen] = useState(initialNew);
@@ -61,6 +62,7 @@ export default function ProjectsView({
 
   const activeCount = projects.filter((project) => !project.isArchived).length;
   const archivedCount = projects.filter((project) => project.isArchived).length;
+  const starredCount = projects.filter((project) => project.favorite && !project.isArchived).length;
   const totalFiles = projects.reduce((sum, project) => sum + (project.fileCount ?? 0), 0);
   const totalRuns = projects.reduce((sum, project) => sum + (project.runCount ?? 0), 0);
   const languages = useMemo(
@@ -73,6 +75,7 @@ export default function ProjectsView({
     return projects
       .filter((project) => (showArchived ? true : !project.isArchived))
       .filter((project) => language === "all" || project.language === language)
+      .filter((project) => !starOnly || project.favorite)
       .filter((project) =>
         !needle ||
         project.name.toLowerCase().includes(needle) ||
@@ -82,7 +85,7 @@ export default function ProjectsView({
           ? a.name.localeCompare(b.name)
           : new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
       );
-  }, [projects, query, language, showArchived, sort]);
+  }, [projects, query, language, showArchived, starOnly, sort]);
 
   function openProject(project: Project) {
     router.push(`/projects/${project.id}`);
@@ -156,6 +159,24 @@ export default function ProjectsView({
     }
   }
 
+  async function toggleFavorite(project: Project) {
+    const next = !project.favorite;
+    const previous = projects;
+    setProjects((current) =>
+      current.map((item) => (item.id === project.id ? { ...item, favorite: next } : item)),
+    );
+    try {
+      await api(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ favorite: next }),
+      });
+      toast(next ? "Pinned to your favorites." : "Removed from favorites.", { tone: "success" });
+    } catch (error) {
+      setProjects(previous);
+      toast(errorMessage(error), { tone: "error" });
+    }
+  }
+
   async function duplicate(project: Project) {
     if (duplicating.has(project.id)) return;
     setDuplicating((current) => new Set(current).add(project.id));
@@ -197,6 +218,17 @@ export default function ProjectsView({
     }
   }
 
+  async function copyShare(project: Project) {
+    if (!project.shareSlug) return;
+    setMenuId(null);
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/s/${project.shareSlug}`);
+      toast("Public link copied.", { tone: "success" });
+    } catch {
+      toast("Copy failed — open the project to copy its share link.", { tone: "error" });
+    }
+  }
+
   function exportProject(project: Project) {
     window.location.href = `/api/export/${project.id}`;
     setMenuId(null);
@@ -231,6 +263,22 @@ export default function ProjectsView({
             <button type="button" className="menu-item" onClick={() => duplicate(project)}>
               <Copy size={14} /> Duplicate
             </button>
+            {project.shareSlug && (
+              <>
+                <button type="button" className="menu-item" onClick={() => void copyShare(project)}>
+                  <Globe size={14} /> Copy public link
+                </button>
+                <a
+                  className="menu-item"
+                  href={`/s/${project.shareSlug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setMenuId(null)}
+                >
+                  <ArrowUpRight size={14} /> View public page
+                </a>
+              </>
+            )}
             <button type="button" className="menu-item" onClick={() => exportProject(project)}>
               <Download size={14} /> Export .zip
             </button>
@@ -324,6 +372,17 @@ export default function ProjectsView({
         <button
           type="button"
           className="chip"
+          data-active={starOnly}
+          onClick={() => setStarOnly((value) => !value)}
+          style={{ height: 36 }}
+          title="Show starred projects only"
+        >
+          <Star size={12} /> Starred {starredCount > 0 ? `(${starredCount})` : ""}
+        </button>
+
+        <button
+          type="button"
+          className="chip"
           data-active={showArchived}
           onClick={() => setShowArchived((value) => !value)}
           style={{ height: 36 }}
@@ -368,6 +427,7 @@ export default function ProjectsView({
               onClick={() => {
                 setQuery("");
                 setLanguage("all");
+                setStarOnly(false);
                 setShowArchived(true);
               }}
             >
@@ -400,6 +460,7 @@ export default function ProjectsView({
                   <h3>
                     {project.name}
                     {project.isArchived && <span className="badge">Archived</span>}
+                    {project.shareSlug && <span className="badge badge--mint"><Globe size={9} /> Public</span>}
                   </h3>
                   <span className="project-card__lang">
                     <span className="project-dot" style={{ background: project.color }} />
@@ -407,6 +468,16 @@ export default function ProjectsView({
                   </span>
                 </div>
                 <div className="project-tile__actions" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="icon-btn project-star"
+                    data-active={project.favorite}
+                    onClick={() => void toggleFavorite(project)}
+                    aria-label={project.favorite ? `Unstar ${project.name}` : `Star ${project.name}`}
+                    title={project.favorite ? "Remove from favorites" : "Add to favorites"}
+                  >
+                    <Star size={13} fill={project.favorite ? "currentColor" : "none"} />
+                  </button>
                   {menu(project)}
                 </div>
               </div>
@@ -445,6 +516,9 @@ export default function ProjectsView({
                 <h3>
                   {project.name}
                   {project.isArchived && <span className="badge" style={{ marginLeft: 7 }}>Archived</span>}
+                  {project.shareSlug && (
+                    <span className="badge badge--mint" style={{ marginLeft: 7 }}><Globe size={9} /> Public</span>
+                  )}
                 </h3>
                 <p>{project.description || "No description"}</p>
               </div>
@@ -452,7 +526,18 @@ export default function ProjectsView({
               <span className="muted-sm" style={{ flex: "none", width: 90, textAlign: "right" }}>
                 {relativeTime(project.updatedAt)}
               </span>
-              <div onClick={(event) => event.stopPropagation()}>{menu(project)}</div>
+              <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <button
+                  type="button"
+                  className="icon-btn project-star"
+                  data-active={project.favorite}
+                  onClick={() => void toggleFavorite(project)}
+                  aria-label={project.favorite ? `Unstar ${project.name}` : `Star ${project.name}`}
+                >
+                  <Star size={13} fill={project.favorite ? "currentColor" : "none"} />
+                </button>
+                {menu(project)}
+              </div>
               <ChevronRight size={14} style={{ color: "var(--faint)", flex: "none" }} />
             </div>
           ))}

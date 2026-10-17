@@ -1362,6 +1362,16 @@ function seedDemoWorkspace(db: DatabaseSync, userId: string) {
     }
   }
 
+  // Make the demo workspace feel lived in: pin the flagship project and give it
+  // a ready-made public share page.
+  const auroraId = projectIds["Aurora Notes"];
+  if (auroraId) {
+    db.prepare("UPDATE projects SET favorite = 1 WHERE id = ?").run(auroraId);
+    db.prepare(
+      "INSERT OR IGNORE INTO shares (id, project_id, slug, views, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(uid(), auroraId, "aurora-notes", 18, ago(3, 2));
+  }
+
   const snippets = snippetSeeds(userId);
   const insertSnippet = db.prepare(
     "INSERT INTO snippets (id, user_id, title, description, language, code, tags, is_starred, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
