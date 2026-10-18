@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ChevronRight, Download, FileArchive, FileCode2, FilePlus2, History,
+  ArrowLeft, ChevronRight, Download, FileArchive, FileCode2, FilePlus2, GitBranch, History,
   Loader2, Menu, MoreVertical, PanelRight, Play, Save, Search, Settings2, Share2,
   TerminalSquare, Trash2, Upload, X,
 } from "lucide-react";
@@ -114,6 +114,18 @@ export default function Workbench({
   const [share, setShare] = useState<Share | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [sharePending, setSharePending] = useState(false);
+  const [githubOpen, setGithubOpen] = useState(false);
+  const [githubToken, setGithubToken] = useState("");
+  const [githubOwner, setGithubOwner] = useState("");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [githubBranch, setGithubBranch] = useState("hanre-sync");
+  const [githubMessage, setGithubMessage] = useState("");
+  const [githubCreateRepo, setGithubCreateRepo] = useState(false);
+  const [githubPrivate, setGithubPrivate] = useState(true);
+  const [githubOpenPr, setGithubOpenPr] = useState(true);
+  const [githubReviewed, setGithubReviewed] = useState(false);
+  const [githubPending, setGithubPending] = useState(false);
+  const [githubResult, setGithubResult] = useState<null | { repositoryUrl: string; branch: string; defaultBranch: string; commitUrl: string; pullRequestUrl: string | null; pullRequestNote: string | null; filesPushed: number; createdRepository: boolean }>(null);
 
   const [fileModal, setFileModal] = useState<null | { mode: "create" } | { mode: "rename"; file: ProjectFile }>(null);
   const [filePathInput, setFilePathInput] = useState("");
@@ -182,13 +194,11 @@ export default function Workbench({
 
   async function saveDirty(ids?: string[]) {
     const targets = ids ?? [...dirtyRef.current];
-    if (!targets.length) {
-      toast("Everything is already saved.", { tone: "info" });
-      return;
-    }
+    if (!targets.length) return true;
     setSaveState("saving");
-    await Promise.all(targets.map((id) => saveFileById(id)));
-    setSaveState("saved");
+    const results = await Promise.all(targets.map((id) => saveFileById(id)));
+    if (results.every(Boolean)) setSaveState("saved");
+    return results.every(Boolean);
   }
 
   useEffect(() => {
@@ -522,6 +532,43 @@ export default function Workbench({
     }
   }
 
+  async function pushToGitHub() {
+    if (githubPending) return;
+    setGithubPending(true);
+    setGithubResult(null);
+    try {
+      const saved = await saveDirty();
+      if (!saved) throw new Error("Fix the save error before syncing to GitHub.");
+      const data = await api<NonNullable<typeof githubResult>>("/api/github/push", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: project.id,
+          token: githubToken,
+          owner: githubOwner,
+          repo: githubRepo,
+          branch: githubBranch,
+          commitMessage: githubMessage || `Sync ${project.name} from Hanre Studio`,
+          createIfMissing: githubCreateRepo,
+          makePrivate: githubPrivate,
+          openPullRequest: githubOpenPr,
+        }),
+      });
+      setGithubResult(data);
+      setGithubToken("");
+      toast(`Pushed ${data.filesPushed} files to ${githubOwner}/${githubRepo}`, { tone: "success" });
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error", title: "GitHub sync failed" });
+    } finally {
+      setGithubPending(false);
+    }
+  }
+
+  function closeGithub() {
+    if (githubPending) return;
+    setGithubOpen(false);
+    setGithubToken("");
+  }
+
   async function openShare() {
     setShareOpen(true);
     setShareLoading(true);
@@ -813,6 +860,19 @@ export default function Workbench({
               aria-label="File history"
             >
               <History size={15} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn wb-hide-sm"
+              onClick={() => {
+                setGithubResult(null);
+                setGithubReviewed(false);
+                setGithubOpen(true);
+              }}
+              title="Sync to GitHub"
+              aria-label="Sync to GitHub"
+            >
+              <GitBranch size={15} />
             </button>
             <button
               type="button"
@@ -1468,6 +1528,55 @@ export default function Workbench({
           )}
           {selectedVersion && !versionLoading && (
             <pre className="history-preview">{selectedVersion.content.slice(0, 4000) || "This version was empty."}</pre>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={githubOpen}
+        onClose={closeGithub}
+        title="Sync to GitHub"
+        subtitle="Push a snapshot of this project, then optionally open a pull request. Your token is used for this request only and is never saved."
+        footer={
+          <>
+            <button className="btn" type="button" onClick={closeGithub} disabled={githubPending}>Close</button>
+            <button className="btn btn--primary" type="button" onClick={() => void pushToGitHub()} disabled={githubPending || !githubToken || !githubOwner || !githubRepo || !githubBranch || !githubReviewed}>
+              {githubPending && <Spinner />} {githubPending ? "Syncing…" : "Push project"}
+            </button>
+          </>
+        }
+      >
+        <div className="form-stack">
+          {githubResult ? (
+            <div className="form-stack">
+              <div className="notice notice--success">Synced {githubResult.filesPushed} files to <strong>{githubResult.repositoryUrl.split("/").slice(-2).join("/")}</strong> on <code className="mono">{githubResult.branch}</code>.</div>
+              <a className="btn btn--outline" href={githubResult.commitUrl} target="_blank" rel="noreferrer">View commit on GitHub</a>
+              {githubResult.pullRequestUrl && <a className="btn btn--outline" href={githubResult.pullRequestUrl} target="_blank" rel="noreferrer">Open pull request</a>}
+              {githubResult.pullRequestNote && <p className="muted-sm">{githubResult.pullRequestNote}</p>}
+              {githubResult.createdRepository && <p className="muted-sm">A new repository was created on GitHub.</p>}
+              <button className="btn" type="button" onClick={() => setGithubResult(null)}>Sync again</button>
+            </div>
+          ) : (
+            <>
+              <div className="field">
+                <label htmlFor="github-token">Personal access token</label>
+                <input id="github-token" className="input mono" type="password" autoComplete="off" spellCheck={false} placeholder="github_pat_…" value={githubToken} onChange={(event) => setGithubToken(event.target.value)} />
+                <span className="field__hint">For an existing repo, use a fine-grained token scoped to that repo with Contents read/write. Creating a new repo may require a classic token with repo access. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">Create a token ↗</a></span>
+              </div>
+              <div className="form-grid">
+                <div className="field"><label htmlFor="github-owner">Owner</label><input id="github-owner" className="input" autoComplete="off" placeholder="your-username" value={githubOwner} onChange={(event) => setGithubOwner(event.target.value)} /></div>
+                <div className="field"><label htmlFor="github-repo">Repository</label><input id="github-repo" className="input" autoComplete="off" placeholder="my-project" value={githubRepo} onChange={(event) => setGithubRepo(event.target.value)} /></div>
+              </div>
+              <div className="form-grid">
+                <div className="field"><label htmlFor="github-branch">Push to branch</label><input id="github-branch" className="input mono" value={githubBranch} onChange={(event) => setGithubBranch(event.target.value)} /></div>
+                <div className="field"><label htmlFor="github-message">Commit message</label><input id="github-message" className="input" placeholder={`Sync ${project.name} from Hanre Studio`} value={githubMessage} onChange={(event) => setGithubMessage(event.target.value)} /></div>
+              </div>
+              <label className="check-row"><input type="checkbox" checked={githubCreateRepo} onChange={(event) => setGithubCreateRepo(event.target.checked)} /> Create repository if it does not exist</label>
+              {githubCreateRepo && <label className="check-row"><input type="checkbox" checked={githubPrivate} onChange={(event) => setGithubPrivate(event.target.checked)} /> Keep new repository private</label>}
+              <label className="check-row"><input type="checkbox" checked={githubOpenPr} onChange={(event) => setGithubOpenPr(event.target.checked)} /> Open a pull request when pushing to a non-default branch</label>
+              <p className="muted-sm" style={{ lineHeight: 1.6 }}>This uploads up to 70 text files (2 MB total). It adds or updates files; it does not delete remote files. Review your files first: credentials, API keys, and private data will be uploaded too. Never use a token with more permissions than needed.</p>
+              <label className="check-row"><input type="checkbox" checked={githubReviewed} onChange={(event) => setGithubReviewed(event.target.checked)} /> I reviewed the project files and confirmed they are safe to upload</label>
+            </>
           )}
         </div>
       </Modal>

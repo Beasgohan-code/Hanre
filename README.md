@@ -59,6 +59,9 @@ Python, HTML/CSS, Markdown, JSON, and SQL all run client-side, straight from the
   inspection, single deletion, and a guarded “clear history”.
 - **GitHub import** — inspect any public repository, choose which text files to copy, and land in
   a ready-to-edit project. Binaries, lockfiles, and huge files are skipped automatically.
+- **GitHub sync** — push a project snapshot to a repository, create a branch, and optionally open
+  a pull request. A least-privilege personal access token is used for the request only and never
+  persisted; the sync updates/adds files but deliberately does not delete remote files.
 - **Public share pages** — publish any project as a read-only page with a live preview, file
   browser, view counter, and instant revoke. No account needed to view it.
 - **Command palette** (⌘K / Ctrl+K) for jumping to pages, projects, snippets, tasks, and files.
@@ -186,7 +189,7 @@ message on failure. Writes use `POST`, `PATCH`, or `DELETE`.
 | Snippets | `GET/POST /api/snippets` · `GET/PATCH/DELETE /api/snippets/:id` |
 | Tasks | `GET/POST /api/tasks` · `GET/PATCH/DELETE /api/tasks/:id` · `POST /api/tasks/reorder` |
 | Runs | `GET/POST/DELETE /api/runs` · `DELETE /api/runs/:id` |
-| Workspace | `GET /api/dashboard`, `/api/search?q=`, `/api/github?repo=`, `POST /api/github/import` |
+| Workspace | `GET /api/dashboard`, `/api/search?q=`, `/api/github?repo=`, `POST /api/github/import`, `POST /api/github/push` |
 | Export | `GET /api/export` (JSON backup) · `GET /api/export/:id` (project zip) |
 
 Authentication uses a 30-day `hanre_session` cookie. Tokens are random 32-byte values; only their
@@ -232,6 +235,9 @@ Copy `.env.example` if you want to set anything — everything is optional.
   Revoke a link in the editor to disable it immediately; never publish secrets.
 - **Single-node storage.** SQLite is perfect for a personal or small-team deployment; it is not a
   distributed database. Host the app on one persistent disk.
+- **GitHub sync uses a personal access token, not OAuth.** Tokens are never saved, but they are
+  sent to this Hanre server over HTTPS during a push. Use a fine-grained token scoped only to the
+  target repository, and revoke it from GitHub when no longer needed.
 - **No email verification or password reset flow.** Accounts are local to this deployment, and the
   demo account cannot change its password or delete itself. Add an email provider before opening a
   public instance to strangers.
