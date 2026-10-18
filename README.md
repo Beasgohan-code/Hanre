@@ -45,6 +45,8 @@ Python, HTML/CSS, Markdown, JSON, and SQL all run client-side, straight from the
 - **File history** — every save keeps the previous version (up to 30 per file), with preview and
   one-click restore.
 - **Go to file** with `⌘P` / `Ctrl+P`, plus tabs and a keyboard-first quick switcher.
+- **Workspace find and replace** across all project files, with regex/case options, match previews,
+  atomic multi-file updates, and automatic file-history snapshots.
 - **Project download** as a `.zip`, plus a full JSON backup of the whole workspace.
 
 ### Around the workspace
@@ -184,7 +186,7 @@ message on failure. Writes use `POST`, `PATCH`, or `DELETE`.
 | Area | Endpoints |
 | --- | --- |
 | Auth | `POST /api/auth/register`, `/login`, `/demo`, `/logout` · `GET/PATCH /api/auth/me` · `POST /api/auth/password` · `DELETE /api/auth/account` |
-| Projects | `GET/POST /api/projects` · `GET/PATCH/DELETE /api/projects/:id` · `POST /api/projects/:id/duplicate` · `GET/POST/DELETE /api/projects/:id/share` |
+| Projects | `GET/POST /api/projects` · `GET/PATCH/DELETE /api/projects/:id` · `POST /api/projects/:id/duplicate` · `POST /api/projects/:id/replace` · `GET/POST/DELETE /api/projects/:id/share` |
 | Files | `GET/POST /api/files?projectId=` · `GET/PATCH/DELETE /api/files/:id` · `GET/POST /api/files/:id/versions` |
 | Snippets | `GET/POST /api/snippets` · `GET/PATCH/DELETE /api/snippets/:id` |
 | Tasks | `GET/POST /api/tasks` · `GET/PATCH/DELETE /api/tasks/:id` · `POST /api/tasks/reorder` |
@@ -203,6 +205,7 @@ SHA-256 hashes are stored. Passwords use `scrypt` with a per-user salt.
 | --- | --- |
 | `⌘K` / `Ctrl+K` | Command palette |
 | `⌘P` / `Ctrl+P` | Go to file (editor) |
+| `⌘⇧F` / `Ctrl+Shift+F` | Find and replace across project files |
 | `⌘S` / `Ctrl+S` | Save the open file |
 | `⌘↵` / `Ctrl+Enter` | Run the open file |
 | `⌘\`` / `Ctrl+\`` | Toggle the terminal |

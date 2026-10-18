@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, ChevronRight, Download, FileArchive, FileCode2, FilePlus2, GitBranch, History,
-  Loader2, Menu, MoreVertical, PanelRight, Play, Save, Search, Settings2, Share2,
+  Loader2, Menu, MoreVertical, PanelRight, Play, Replace, Save, Search, Settings2, Share2,
   TerminalSquare, Trash2, Upload, X,
 } from "lucide-react";
 import type { FileVersion, Project, ProjectFile, Share, UserPrefs } from "@/lib/types";
@@ -101,6 +101,13 @@ export default function Workbench({
 
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickQuery, setQuickQuery] = useState("");
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState("");
+  const [replaceWith, setReplaceWith] = useState("");
+  const [replaceCaseSensitive, setReplaceCaseSensitive] = useState(false);
+  const [replaceRegex, setReplaceRegex] = useState(false);
+  const [replacePending, setReplacePending] = useState(false);
+  const [replaceSummary, setReplaceSummary] = useState("");
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyFile, setHistoryFile] = useState<ProjectFile | null>(null);
@@ -532,6 +539,55 @@ export default function Workbench({
     }
   }
 
+  async function replaceWorkspaceText() {
+    if (replacePending || !replaceQuery || replaceSearch.error || replaceSearch.total === 0) return;
+    setReplacePending(true);
+    setReplaceSummary("");
+    try {
+      const saved = await saveDirty();
+      if (!saved) throw new Error("Fix the save error before replacing project files.");
+      const flags = replaceCaseSensitive ? "g" : "gi";
+      const makePattern = () => new RegExp(replaceRegex ? replaceQuery : replaceQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), flags);
+      const changes: { fileId: string; content: string }[] = [];
+      let count = 0;
+      for (const file of filesRef.current) {
+        if (file.isDir || !file.content) continue;
+        const pattern = makePattern();
+        const matches = file.content.match(pattern);
+        if (!matches?.length) continue;
+        count += matches.length;
+        changes.push({ fileId: file.id, content: file.content.replace(pattern, replaceWith) });
+      }
+      if (!changes.length) {
+        setReplaceSummary("No matches remain to replace.");
+        return;
+      }
+      await api(`/api/projects/${project.id}/replace`, {
+        method: "POST",
+        body: JSON.stringify({ changes }),
+      });
+      const changedIds = new Set(changes.map((change) => change.fileId));
+      const nextFiles = filesRef.current.map((file) => {
+        const change = changes.find((entry) => entry.fileId === file.id);
+        return change ? { ...file, content: change.content } : file;
+      });
+      setFiles(nextFiles);
+      filesRef.current = nextFiles;
+      setDirty((current) => {
+        const next = new Set(current);
+        changedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (activeId && changedIds.has(activeId)) setEditorToken((token) => token + 1);
+      setReplaceSummary(`Replaced ${count.toLocaleString()} occurrence${count === 1 ? "" : "s"} across ${changes.length} file${changes.length === 1 ? "" : "s"}. Previous versions were saved to file history.`);
+      toast(`Replaced ${count.toLocaleString()} occurrences in ${changes.length} files`, { tone: "success" });
+    } catch (error) {
+      toast(errorMessage(error), { tone: "error", title: "Could not replace text" });
+    } finally {
+      setReplacePending(false);
+    }
+  }
+
   async function pushToGitHub() {
     if (githubPending) return;
     setGithubPending(true);
@@ -709,6 +765,13 @@ export default function Workbench({
       if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setReplaceQuery("");
+        setReplaceWith("");
+        setReplaceSummary("");
+        setReplaceOpen(true);
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
         setQuickQuery("");
@@ -783,6 +846,38 @@ export default function Workbench({
       .sort((a, b) => a.path.localeCompare(b.path))
       .slice(0, 40);
   }, [files, quickQuery]);
+  const replaceSearch = useMemo(() => {
+    const query = replaceQuery;
+    if (!query) return { matches: [] as { file: ProjectFile; line: number; snippet: string; count: number }[], total: 0, matchedFiles: 0, error: "" };
+    let expression: RegExp;
+    try {
+      if (replaceRegex && /\([^)]*(?:[*+?]|\{\d)[^)]*\)(?:[*+?]|\{\d)/.test(query)) {
+        throw new Error("Nested repetition patterns are disabled to protect the editor from slow searches.");
+      }
+      const source = replaceRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      expression = new RegExp(source, replaceCaseSensitive ? "g" : "gi");
+    } catch (error) {
+      return { matches: [] as { file: ProjectFile; line: number; snippet: string; count: number }[], total: 0, matchedFiles: 0, error: error instanceof Error ? error.message : "Invalid regular expression." };
+    }
+    const matches: { file: ProjectFile; line: number; snippet: string; count: number }[] = [];
+    let total = 0;
+    let matchedFiles = 0;
+    for (const file of files) {
+      if (file.isDir || !file.content) continue;
+      const lines = file.content.split("\n");
+      let fileHasMatch = false;
+      for (let index = 0; index < lines.length; index += 1) {
+        const count = (lines[index].match(expression) ?? []).length;
+        if (count) {
+          fileHasMatch = true;
+          total += count;
+          if (matches.length < 200) matches.push({ file, line: index + 1, snippet: lines[index].trim().slice(0, 180), count });
+        }
+      }
+      if (fileHasMatch) matchedFiles += 1;
+    }
+    return { matches, total, matchedFiles, error: "" };
+  }, [files, replaceQuery, replaceRegex, replaceCaseSensitive]);
   const shareUrl = share ? (typeof window !== "undefined" ? `${window.location.origin}/s/${share.slug}` : `/s/${share.slug}`) : "";
   const outputLines = useMemo(() => output.split("\n"), [output]);
   const meta = activeFile ? languageMeta(activeFile.language) : null;
@@ -838,6 +933,20 @@ export default function Workbench({
             >
               <Save size={13} />
               <span className="btn-label">Save</span>
+            </button>
+            <button
+              type="button"
+              className="icon-btn wb-hide-sm"
+              onClick={() => {
+                setReplaceQuery("");
+                setReplaceWith("");
+                setReplaceSummary("");
+                setReplaceOpen(true);
+              }}
+              title="Find and replace in project (⌘⇧F)"
+              aria-label="Find and replace in project"
+            >
+              <Replace size={15} />
             </button>
             <button
               type="button"
@@ -1423,6 +1532,55 @@ export default function Workbench({
         onCancel={() => setDeleteProjectOpen(false)}
         onConfirm={deleteProject}
       />
+
+      <Modal
+        open={replaceOpen}
+        onClose={() => !replacePending && setReplaceOpen(false)}
+        title="Find and replace in project"
+        subtitle="Search all text files, preview matches, and apply a versioned replace across the workspace."
+        footer={
+          <>
+            <button className="btn" type="button" onClick={() => setReplaceOpen(false)} disabled={replacePending}>Close</button>
+            <button className="btn btn--primary" type="button" onClick={() => void replaceWorkspaceText()} disabled={replacePending || !replaceQuery || !!replaceSearch.error || replaceSearch.total === 0 || replaceSearch.matchedFiles > 70}>
+              {replacePending && <Spinner />} Replace all {replaceSearch.total ? `(${replaceSearch.total})` : ""}
+            </button>
+          </>
+        }
+      >
+        <div className="form-stack workspace-replace">
+          <div className="field">
+            <label htmlFor="workspace-find">Find</label>
+            <input id="workspace-find" className="input mono" autoFocus maxLength={250} value={replaceQuery} onChange={(event) => { setReplaceQuery(event.target.value); setReplaceSummary(""); }} placeholder="Search in every file…" />
+          </div>
+          <div className="field">
+            <label htmlFor="workspace-replace">Replace with</label>
+            <input id="workspace-replace" className="input mono" value={replaceWith} onChange={(event) => { setReplaceWith(event.target.value); setReplaceSummary(""); }} placeholder="Replacement text" />
+          </div>
+          <div className="form-grid">
+            <label className="check-row"><input type="checkbox" checked={replaceCaseSensitive} onChange={(event) => setReplaceCaseSensitive(event.target.checked)} /> Case sensitive</label>
+            <label className="check-row"><input type="checkbox" checked={replaceRegex} onChange={(event) => setReplaceRegex(event.target.checked)} /> Regular expression</label>
+          </div>
+          {replaceSearch.error ? (
+            <p className="replace-error">Invalid pattern: {replaceSearch.error}</p>
+          ) : replaceQuery && replaceSearch.matchedFiles > 70 ? (
+            <p className="replace-error">Matches span {replaceSearch.matchedFiles} files. Narrow the search to 70 files or fewer before replacing.</p>
+          ) : replaceQuery ? (
+            <p className="muted-sm">{replaceSearch.total.toLocaleString()} match{replaceSearch.total === 1 ? "" : "es"} in {replaceSearch.matchedFiles} file{replaceSearch.matchedFiles === 1 ? "" : "s"} {replaceSearch.matches.length === 200 && "· showing first 200 matching lines"}</p>
+          ) : (
+            <p className="muted-sm">Type a search term. Regular expressions are optional; literal search is the default.</p>
+          )}
+          {replaceSummary && <div className="notice notice--success">{replaceSummary}</div>}
+          <div className="replace-results">
+            {replaceSearch.matches.length ? replaceSearch.matches.map((match, index) => (
+              <button key={`${match.file.id}:${match.line}:${index}`} type="button" className="replace-result" onClick={() => { openFile(match.file); setReplaceOpen(false); }}>
+                <span className="replace-result__path">{match.file.path}<small>Line {match.line}{match.count > 1 ? ` · ${match.count} matches` : ""}</small></span>
+                <code>{match.snippet || "(blank line)"}</code>
+              </button>
+            )) : replaceQuery && !replaceSearch.error ? <p className="muted-sm">No matching text in this project.</p> : null}
+          </div>
+          <p className="muted-sm">⌘⇧F / Ctrl+Shift+F · Each changed file gets a history snapshot before the replace.</p>
+        </div>
+      </Modal>
 
       <Modal
         open={quickOpen}
