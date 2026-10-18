@@ -176,6 +176,34 @@ export const TEMPLATES: Template[] = [
       },
     ],
   },
+  {
+    id: "test-lab",
+    name: "Test runner",
+    description: "A tiny JavaScript project with runnable assertions.",
+    language: "javascript",
+    icon: "beaker",
+    files: [
+      { path: "math.test.js", content: `function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+test("keeps values inside the range", () => {
+  assert.equal(clamp(5, 0, 10), 5);
+  assert.equal(clamp(-2, 0, 10), 0);
+  assert.equal(clamp(20, 0, 10), 10);
+});
+
+test("supports asynchronous tests", async () => {
+  const answer = await Promise.resolve(42);
+  assert.equal(answer, 42);
+});
+` },
+      { path: "README.md", content: `# Test runner starter
+
+Open this project and click **Test** in the editor toolbar. JavaScript tests use \`test(name, fn)\` with \`assert\`, \`assert.equal\`, \`assert.deepEqual\`, and \`assert.throws\`. Keep test files named \`*.test.js\` or \`*.spec.js\`.
+` },
+    ],
+  },
 ];
 
 export function findTemplate(id: string): Template {

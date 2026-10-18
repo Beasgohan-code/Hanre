@@ -4,14 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ChevronRight, Download, FileArchive, FileCode2, FilePlus2, GitBranch, History,
+  ArrowLeft, Beaker, ChevronRight, Download, FileArchive, FileCode2, FilePlus2, GitBranch, History,
   Loader2, Menu, MoreVertical, PanelRight, Play, Replace, Save, Search, Settings2, Share2,
   TerminalSquare, Trash2, Upload, X,
 } from "lucide-react";
 import type { FileVersion, Project, ProjectFile, Share, UserPrefs } from "@/lib/types";
 import { languageForPath, LANGUAGES } from "@/lib/types";
 import { api, errorMessage, relativeTime } from "@/lib/client";
-import { runFile as executeFile, type RunResult } from "@/lib/runner";
+import { runFile as executeFile, runProjectTests, type RunResult } from "@/lib/runner";
 import { usePrefs, useToast } from "@/components/studio/providers";
 import { ConfirmDialog, Modal, Spinner } from "@/components/ui/kit";
 import CodeEditor from "./CodeEditor";
@@ -280,6 +280,46 @@ export default function Workbench({
         setPreviewRefresh((value) => value + 1);
       }
       await persistRun(activeFile, result, command);
+    } catch (error) {
+      setRunStatus("error");
+      setOutput(`✖ ${errorMessage(error)}`);
+      setRunNote("");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function handleRunTests() {
+    if (running || testFileCount === 0) return;
+    setRunning(true);
+    setBottomOpen(true);
+    setBottomTab("output");
+    setRunStatus("running");
+    setRunNote("Preparing project tests…");
+    setOutput("");
+    setRunDuration(null);
+    try {
+      const result = await runProjectTests(filesRef.current, (note) => setRunNote(note));
+      setOutput(result.output);
+      setRunStatus(result.status);
+      setRunDuration(result.durationMs);
+      setRunNote("");
+      try {
+        await api("/api/runs", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: project.id,
+            fileId: null,
+            command: "hanre test",
+            language: "workspace",
+            status: result.status,
+            output: result.output.slice(0, 20000),
+            durationMs: result.durationMs,
+          }),
+        });
+      } catch {
+        /* Test output remains visible even if history is temporarily unavailable. */
+      }
     } catch (error) {
       setRunStatus("error");
       setOutput(`✖ ${errorMessage(error)}`);
@@ -839,6 +879,11 @@ export default function Workbench({
     movePath: moveFileInternal,
   };
 
+  const testFileCount = useMemo(
+    () => files.filter((file) => !file.isDir && /\.(?:test|spec)\.(?:js|mjs|cjs|ts|py)$/i.test(file.path)).length,
+    [files],
+  );
+
   const quickResults = useMemo(() => {
     const needle = quickQuery.trim().toLowerCase();
     return files
@@ -923,6 +968,16 @@ export default function Workbench({
             >
               {running ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
               <span className="btn-label">{running ? "Running" : "Run"}</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn--sm wb-test-action"
+              onClick={() => void handleRunTests()}
+              disabled={running || testFileCount === 0}
+              title={testFileCount ? `Run ${testFileCount} project test file${testFileCount === 1 ? "" : "s"}` : "Add *.test.js, *.spec.ts, or *.test.py files to enable tests"}
+            >
+              {running ? <Loader2 size={13} className="spin" /> : <Beaker size={13} />}
+              <span className="btn-label">Test{testFileCount ? ` · ${testFileCount}` : ""}</span>
             </button>
             <button
               type="button"

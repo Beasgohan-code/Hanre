@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  BarChart3, BookOpen, Braces, File, Github, Globe, Loader2, Terminal, TriangleAlert,
+  BarChart3, Beaker, BookOpen, Braces, File, Github, Globe, Loader2, Terminal, TriangleAlert,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { TEMPLATES } from "@/lib/templates";
@@ -20,6 +20,7 @@ const TEMPLATE_ICONS: Record<string, LucideIcon> = {
   braces: Braces,
   chart: BarChart3,
   book: BookOpen,
+  beaker: Beaker,
 };
 
 const COLORS = ["#8b7bff", "#5eead4", "#fbbf24", "#60a5fa", "#fb7185", "#a3e635"];

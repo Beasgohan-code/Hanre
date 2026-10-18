@@ -53,12 +53,15 @@ Python, HTML/CSS, Markdown, JSON, and SQL all run client-side, straight from the
 - **Dashboard** with a 7-day activity chart, real stats, recent projects, a focus list of open
   tasks, recent runs, and an activity feed.
 - **Projects** with starring, filtering (starred/active/archived), grid and list views, duplicate,
-  archive, rename, publish, delete, six starter templates, and optimistic updates throughout.
+  archive, rename, publish, delete, seven starter templates, and optimistic updates throughout.
 - **Snippets** library with language/tag filters, search, starring, copy, edit, and delete.
 - **Tasks** as a four-column drag-and-drop board (Backlog → In progress → Review → Done) with
   priorities, due dates, project links, quick-complete, and persisted ordering.
 - **Runs** history with success rate, average duration, status filters, pagination, output
   inspection, single deletion, and a guarded “clear history”.
+- **Project test runner** — run `*.test.js`, `*.spec.ts`, and `*.test.py` files in isolated browser
+  runtimes. JavaScript/TypeScript include a tiny `test()`/`assert` harness; Python uses `assert`.
+  Test results appear in Output and Runs history. A “Test runner” starter template demonstrates it.
 - **GitHub import** — inspect any public repository, choose which text files to copy, and land in
   a ready-to-edit project. Binaries, lockfiles, and huge files are skipped automatically.
 - **GitHub sync** — push a project snapshot to a repository, create a branch, and optionally open
@@ -108,6 +111,27 @@ npm start          # binds 0.0.0.0:3000
 
 The SQLite file lives at `data/hanre.db` (git-ignored). Mount a persistent volume there when
 deploying — that single directory is the whole database.
+
+---
+
+## Run with Docker
+
+Build and start the production container with a persistent local database volume:
+
+```sh
+docker build -t hanre-studio .
+docker run --name hanre-studio -p 3000:3000 \
+  -v hanre-data:/app/data \
+  -e HANRE_DB_PATH=/app/data/hanre.db \
+  hanre-studio
+```
+
+Open `http://localhost:3000`. The container runs as a non-root user, includes a health check,
+and keeps SQLite data in the mounted volume. The demo account is disabled by default in
+production; create a regular account instead. If you deliberately want the public demo account,
+set `HANRE_ENABLE_DEMO=true` (not recommended for public deployments).
+
+`docker compose up --build` is also supported with the included `compose.yaml`.
 
 ---
 
@@ -222,6 +246,8 @@ Copy `.env.example` if you want to set anything — everything is optional.
 | Variable | Purpose |
 | --- | --- |
 | `GITHUB_TOKEN` | Raises GitHub’s anonymous rate limit for imports. No scopes are required for public repositories. |
+| `HANRE_DB_PATH` | SQLite file path; mount its parent directory on persistent storage in production. |
+| `HANRE_ENABLE_DEMO` | Set to `true` only to expose the public demo login on a production deployment. |
 | `NODE_EXTRA_CA_CERTS` | Only needed behind a TLS-inspecting proxy or sandbox; point it at your CA bundle. |
 
 ---
@@ -232,6 +258,10 @@ Copy `.env.example` if you want to set anything — everything is optional.
   shell, but there are no processes, pipes, permissions, or network commands. `git` is a
   lightweight local model — commits are illustrative, not content-addressed.
 - **Python is downloaded on demand.** The first Python or SQL run needs network access to jsDelivr.
+- **Test files are lightweight scripts, not full Jest/Vitest/Pytest environments.** JS/TS test
+  files are self-contained (imports are not resolved); Python tests can use plain `assert`.
+- **The test runner is lightweight rather than Jest/Vitest/Pytest.** JS/TS tests are self-contained
+  and do not resolve imports; Python test files run as scripts and use built-in `assert`.
 - **No native compilers.** C++, Rust, Java, and PHP files are highlighted and stored, but not
   compiled; Hanre explains this instead of failing silently.
 - **Shares are public by design.** Anyone with a share link can read every file in that project.
@@ -253,7 +283,8 @@ Copy `.env.example` if you want to set anything — everything is optional.
 | --- | --- |
 | `npm run dev` | Development server on port 3000 |
 | `npm run build` | Production build |
-| `npm start` | Production server, bound to `0.0.0.0:3000` |
+| `npm start` | Production server, bound to `0.0.0.0:$PORT` (defaults to 3000) |
+| `docker build -t hanre-studio .` | Build the production container image |
 | `npm run seed` | Ensure the demo workspace exists |
 | `npm run seed -- --reset` | Rebuild the demo workspace from scratch |
 

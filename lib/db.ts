@@ -8,14 +8,16 @@ let db: DatabaseSync | null = null;
 export function getDb(): DatabaseSync {
   if (db) return db;
   const dataDir = path.join(process.cwd(), "data");
-  fs.mkdirSync(dataDir, { recursive: true });
-  db = new DatabaseSync(path.join(dataDir, "hanre.db"));
+  const dbPath = process.env.HANRE_DB_PATH || path.join(dataDir, "hanre.db");
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  db = new DatabaseSync(dbPath);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("PRAGMA busy_timeout = 5000;");
   migrate(db);
   const count = db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
-  if (count.n === 0) {
+  const allowDemoSeed = process.env.NODE_ENV !== "production" || process.env.HANRE_ENABLE_DEMO === "true";
+  if (count.n === 0 && allowDemoSeed) {
     try {
       seedDemoUser(db);
     } catch (err) {

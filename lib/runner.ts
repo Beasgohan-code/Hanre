@@ -80,6 +80,20 @@ function cleanStack(stack: string, name: string, message: string) {
   return formatted.join("\n");
 }
 
+const JS_TEST_HARNESS = [
+  "var __hanreTestCases = [];",
+  "var test = function (name, fn) { if (typeof fn !== 'function') throw new TypeError('test() needs a function'); __hanreTestCases.push({ name: String(name), fn: fn }); };",
+  "var assert = function (value, message) { if (!value) throw new Error(message || 'Expected a truthy value'); };",
+  "assert.ok = assert;",
+  "assert.equal = function (actual, expected, message) { if (actual !== expected) throw new Error(message || ('Expected ' + JSON.stringify(actual) + ' to equal ' + JSON.stringify(expected))); };",
+  "assert.deepEqual = function (actual, expected, message) { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(message || ('Expected ' + JSON.stringify(actual) + ' to deeply equal ' + JSON.stringify(expected))); };",
+  "assert.throws = function (fn, message) { var threw = false; try { fn(); } catch (_) { threw = true; } if (!threw) throw new Error(message || 'Expected function to throw'); };",
+].join("\n");
+
+function withTestHarness(code: string) {
+  return `${JS_TEST_HARNESS}\n${code}\n\nif (__hanreTestCases.length === 0) throw new Error('No test() cases found. Add test("name", () => assert.equal(actual, expected)) cases.');\nvar __hanreFailures = 0;\nfor (var __case of __hanreTestCases) { try { await __case.fn(); console.log('✓ ' + __case.name); } catch (__error) { __hanreFailures += 1; console.error('✖ ' + __case.name + ': ' + (__error && __error.message || __error)); } }\nif (__hanreFailures) throw new Error(__hanreFailures + ' of ' + __hanreTestCases.length + ' tests failed.');\nconsole.info(__hanreTestCases.length + ' test(s) passed.');`;
+}
+
 async function executeJavaScript(
   code: string,
   timeoutMs = 6000,
@@ -442,5 +456,72 @@ export async function runFile(
     output: friendly[language] ?? "This file type cannot be executed in the browser yet.",
     durationMs: 0,
     preview: null,
+  };
+}
+
+/** Run small, dependency-free JavaScript/TypeScript/Python project test scripts in isolated runtimes. */
+export async function runProjectTests(
+  files: ProjectFile[],
+  onStatus?: StatusHandler,
+): Promise<RunResult> {
+  const candidates = files
+    .filter((file) => !file.isDir && /\.(?:test|spec)\.(?:js|mjs|cjs|ts|py)$/i.test(file.path))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  if (!candidates.length) {
+    return {
+      status: "error",
+      output: "No test files found. Add a file named *.test.js, *.spec.ts, or *.test.py.",
+      durationMs: 0,
+    };
+  }
+  if (candidates.length > 20) {
+    return {
+      status: "error",
+      output: `Found ${candidates.length} test files. The browser runner supports up to 20 per run.`,
+      durationMs: 0,
+    };
+  }
+  const totalBytes = candidates.reduce((sum, file) => sum + new TextEncoder().encode(file.content).byteLength, 0);
+  if (totalBytes > 500_000) {
+    return { status: "error", output: "Test files exceed the 500 KB per-run limit.", durationMs: 0 };
+  }
+
+  const started = performance.now();
+  const output: string[] = [];
+  let failed = false;
+  for (const file of candidates) {
+    onStatus?.(`Running ${file.path}…`);
+    output.push(`▶ ${file.path}`);
+    let result: RunResult;
+    try {
+      if (file.language === "javascript") {
+        const js = await executeJavaScript(withTestHarness(file.content));
+        result = { status: js.failed ? "error" : "success", output: js.output, durationMs: js.durationMs };
+      } else if (file.language === "typescript") {
+        const { transform } = await import("sucrase");
+        const compiled = transform(file.content, { transforms: ["typescript"] }).code;
+        const js = await executeJavaScript(withTestHarness(compiled));
+        result = { status: js.failed ? "error" : "success", output: js.output, durationMs: js.durationMs };
+      } else if (file.language === "python") {
+        result = await executePython(file, onStatus);
+      } else {
+        result = { status: "unsupported", output: `No test runtime for ${file.language}.`, durationMs: 0 };
+      }
+    } catch (error) {
+      result = {
+        status: "error",
+        output: error instanceof Error ? error.message : String(error),
+        durationMs: 0,
+      };
+    }
+    output.push(result.output, "");
+    if (result.status !== "success") failed = true;
+  }
+  const durationMs = Math.max(1, Math.round(performance.now() - started));
+  output.push(`${failed ? "✖" : "✓"} ${candidates.length} test file${candidates.length === 1 ? "" : "s"} · ${durationMs} ms`);
+  return {
+    status: failed ? "error" : "success",
+    output: output.join("\n").slice(0, 24_000),
+    durationMs,
   };
 }
